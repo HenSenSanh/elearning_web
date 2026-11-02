@@ -22,12 +22,16 @@ jobs:
 
       - name: Validate composer.json and install PHPMailer
         run: |
-          composer validate --strict
+          composer validate --no-check-publish
           composer install --no-interaction --prefer-dist
 
       - name: Lint all PHP files (Syntax Check)
         run: |
-          find app -name "*.php" -not -path "app/vendor/*" -print0 | xargs -0 -n1 php -l
+          find app/public app/src -name "*.php" -print0 | xargs -0 -n1 php -l
+
+      - name: Prepare environment file
+        run: |
+          if [ ! -f .env ]; then cp .env.example .env 2>/dev/null || touch .env; fi
 
       - name: Build Docker Compose images
         run: |

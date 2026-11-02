@@ -56,10 +56,7 @@ function generateCsrfToken(): string
  */
 function verifyCsrfToken(?string $token): bool
 {
-    if ($token === null || $token === "") {
-        return true;
-    }
-    if (empty($_SESSION["csrf_token"])) {
+    if ($token === null || $token === "" || empty($_SESSION["csrf_token"])) {
         return false;
     }
     return hash_equals($_SESSION["csrf_token"], $token);
@@ -136,7 +133,7 @@ function registerUser(
 
     $pdo = getDatabaseConnection();
     $stmt = $pdo->prepare("
-        SELECT id
+        SELECT id, username, email, email_verified, token_expires_at
         FROM users
         WHERE username = :username OR email = :email
         LIMIT 1
@@ -146,7 +143,39 @@ function registerUser(
         "email"    => $email
     ]);
 
-    if ($stmt->fetch()) {
+    $existing = $stmt->fetch();
+    if ($existing) {
+        // Nếu tài khoản cũ chưa kích hoạt email và token đã hết hạn, cho phép làm mới token và gửi lại email
+        if ((int) $existing["email_verified"] === 0 && !empty($existing["token_expires_at"]) && strtotime($existing["token_expires_at"]) < time()) {
+            $passwordHash      = hashPasswordSha256($password);
+            $verificationToken = bin2hex(random_bytes(32));
+            $tokenExpiresAt    = date("Y-m-d H:i:s", time() + 1800);
+
+            $renewStmt = $pdo->prepare("
+                UPDATE users
+                SET username = :username,
+                    email = :email,
+                    password_hash = :password_hash,
+                    verification_token = :verification_token,
+                    token_expires_at = :token_expires_at
+                WHERE id = :id
+            ");
+            $renewStmt->execute([
+                "username"           => $username,
+                "email"              => $email,
+                "password_hash"      => $passwordHash,
+                "verification_token" => $verificationToken,
+                "token_expires_at"   => $tokenExpiresAt,
+                "id"                 => $existing["id"]
+            ]);
+
+            $mailSent = sendVerificationEmail($email, $username, $verificationToken);
+            return [
+                "success" => true,
+                "message" => "Tài khoản chưa xác nhận trước đó đã hết hạn. Hệ thống đã làm mới liên kết kích hoạt qua email (hiệu lực 30 phút)."
+            ];
+        }
+
         return [
             "success" => false,
             "message" => "User name hoặc email đã tồn tại."
@@ -389,6 +418,15 @@ function verifyOtpLogin(string $otpCode): array
         ];
     }
 
+    if (!empty($user["locked_until"]) && strtotime($user["locked_until"]) > time()) {
+        $remainingMinutes = (int) ceil((strtotime($user["locked_until"]) - time()) / 60);
+        logLoginAttempt((int) $user["id"], $user["username"], "locked", "Tài khoản đang bị tạm khóa khi nhập OTP");
+        return [
+            "success" => false,
+            "message" => "Tài khoản đang bị tạm khóa do nhập sai quá nhiều lần. Vui lòng thử lại sau {$remainingMinutes} phút."
+        ];
+    }
+
     if (!empty($user["otp_expires_at"]) && strtotime($user["otp_expires_at"]) < time()) {
         return [
             "success" => false,
@@ -397,15 +435,51 @@ function verifyOtpLogin(string $otpCode): array
     }
 
     if (!hash_equals((string) $user["otp_code"], $otpCode)) {
-        logLoginAttempt((int) $user["id"], $user["username"], "failed", "Nhập sai mã 2FA OTP");
+        $failedAttempts = ((int) ($user["failed_attempts"] ?? 0)) + 1;
+        $lockedUntil    = null;
+
+        if ($failedAttempts >= 5) {
+            $lockedUntil = date("Y-m-d H:i:s", time() + 900);
+        }
+
+        $updateFail = $pdo->prepare("
+            UPDATE users
+            SET failed_attempts = :failed_attempts,
+                locked_until = :locked_until
+            WHERE id = :id
+        ");
+        $updateFail->execute([
+            "failed_attempts" => $failedAttempts,
+            "locked_until"    => $lockedUntil,
+            "id"              => $user["id"]
+        ]);
+
+        logLoginAttempt((int) $user["id"], $user["username"], "failed", "Nhập sai mã 2FA OTP (lần {$failedAttempts}/5)");
+
+        if ($failedAttempts >= 5) {
+            unset($_SESSION["pending_otp_user_id"], $_SESSION["pending_otp_remember"], $_SESSION["pending_otp_input"]);
+            return [
+                "success" => false,
+                "message" => "Mã OTP không chính xác. Bạn đã nhập sai 5 lần, tài khoản bị tạm khóa 15 phút."
+            ];
+        }
+
         return [
             "success" => false,
-            "message" => "Mã OTP không chính xác."
+            "message" => "Mã OTP không chính xác (còn " . (5 - $failedAttempts) . " lần thử)."
         ];
     }
 
-    // Xóa mã OTP sau khi dùng xong và khởi tạo phiên đăng nhập chính thức
-    $clearStmt = $pdo->prepare("UPDATE users SET otp_code = NULL, otp_expires_at = NULL WHERE id = :id");
+    // Xóa mã OTP sau khi dùng xong, reset bộ đếm lỗi và khởi tạo phiên đăng nhập chính thức
+    $clearStmt = $pdo->prepare("
+        UPDATE users
+        SET otp_code = NULL,
+            otp_expires_at = NULL,
+            failed_attempts = 0,
+            locked_until = NULL,
+            last_login_at = NOW()
+        WHERE id = :id
+    ");
     $clearStmt->execute(["id" => $user["id"]]);
 
     $remember        = (bool) ($_SESSION["pending_otp_remember"] ?? false);
@@ -507,6 +581,13 @@ function resetPasswordWithToken(string $token, string $newPassword, string $conf
         return [
             "success" => false,
             "message" => "Mật khẩu mới phải có ít nhất 6 ký tự."
+        ];
+    }
+
+    if (!preg_match('/[A-Z]/', $newPassword) || !preg_match('/[a-z]/', $newPassword) || !preg_match('/[0-9]/', $newPassword)) {
+        return [
+            "success" => false,
+            "message" => "Mật khẩu mới phải chứa ít nhất 1 chữ hoa, 1 chữ thường và 1 chữ số."
         ];
     }
 

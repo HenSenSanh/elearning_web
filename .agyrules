@@ -1,0 +1,29 @@
+# CORE EXECUTION RULES (MINIMAL TOKEN MODE)
+
+## 1. Context & Read Discipline (Chống ngốn Token)
+- NEVER read files or directories recursively (`Get-ChildItem -Recurse` or `tree`) unless explicitly requested.
+- IGNORE completely: `vendor/`, `node_modules/`, `.git/`, `.github/`, `mysql_data/`, `*.zip`, `__pycache__/`, `*.pth`, `*.h5`.
+- Do NOT re-read a file that is already in the conversation context.
+- If `read_file` is denied by the user, STOP immediately and ask for instruction. Never retry reading the same file.
+
+## 2. Coding & File Generation
+- Write complete, production-ready code in a single pass.
+- No placeholders (`// ... rest of code`).
+- When modifying existing files, apply targeted edits instead of rewriting the entire file unless necessary.
+- Keep explanations under 3 bullet points. Lead with action/commands, not theory.
+
+## 3. Stack-Specific Workflows
+### A. Docker & PHP Web (`php-login-system`)
+- Container names: `php_login_app`, `php_login_mysql`, `php_login_phpmyadmin`.
+- Database host inside Docker network is ALWAYS `mysql` (port `3306`), external host port is `3307`.
+- Because `./app` mounts over `/var/www/html`, always ensure `vendor/` exists via `docker exec php_login_app composer install` if PHPMailer fails.
+
+### B. Git & GitHub Workflow
+- Before pushing: check `git status` and `git remote -v`.
+- Never commit `.env`, `vendor/`, or `.zip` archives.
+- Use concise commit messages (`feat:`, `fix:`, `chore:`).
+
+### C. AI / Deep Learning & Data Science (Python)
+- Stack: PyTorch, Scikit-Learn, Pandas, NumPy, Hugging Face.
+- Always write device-agnostic code (`device = torch.device("cuda" if torch.cuda.is_available() else "cpu")`).
+- Include type hints and tensor shape comments on key transformations.

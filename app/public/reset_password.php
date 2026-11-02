@@ -46,7 +46,7 @@ $csrfToken = generateCsrfToken();
 
                 <div class="form-group">
                     <label for="password">Mật khẩu mới</label>
-                    <input type="password" id="password" name="password" placeholder="Nhập mật khẩu mới (>= 6 ký tự)" required>
+                    <input type="password" id="password" name="password" placeholder=">= 6 ký tự (gồm chữ hoa, thường và số)" required>
                 </div>
 
                 <div class="form-group">

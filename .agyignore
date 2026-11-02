@@ -1,0 +1,16 @@
+# Thư mục thư viện & Dữ liệu nặng (Cấm AI đọc để tiết kiệm token)
+app/vendor/
+vendor/
+node_modules/
+mysql_data/
+
+# File hệ thống & Git
+.git/
+.github/
+
+# File nhạy cảm & File nén bài tập
+.env
+*.zip
+*.rar
+*.tar.gz
+*.log

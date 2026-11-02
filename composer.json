@@ -1,4 +1,8 @@
 {
+    "name": "elearning/login-system",
+    "description": "E-Learning Authentication System with PHP, MySQL and Docker",
+    "type": "project",
+    "license": "proprietary",
     "require": {
         "phpmailer/phpmailer": "^6.9"
     }
