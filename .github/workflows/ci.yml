@@ -1,0 +1,34 @@
+name: PHP & Docker Compose CI
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup PHP 8.2
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: pdo, pdo_mysql, zip
+
+      - name: Validate composer.json and install PHPMailer
+        run: |
+          composer validate --strict
+          composer install --no-interaction --prefer-dist
+
+      - name: Lint all PHP files (Syntax Check)
+        run: |
+          find app -name "*.php" -not -path "app/vendor/*" -print0 | xargs -0 -n1 php -l
+
+      - name: Build Docker Compose images
+        run: |
+          docker compose build
