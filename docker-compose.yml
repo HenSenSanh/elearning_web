@@ -21,6 +21,7 @@ services:
       - "80"
     volumes:
       - ./app:/var/www/html
+      - /var/www/html/vendor
     env_file:
       - .env
     depends_on:

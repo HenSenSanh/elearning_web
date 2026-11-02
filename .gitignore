@@ -1,0 +1,18 @@
+# Dependencies
+vendor/
+app/vendor/
+
+# Database & Storage
+mysql_data/
+
+# Environment & Sensitive files
+.env
+
+# Archives & Temporary files
+*.zip
+*.rar
+*.tar.gz
+*.log
+
+# GitHub workflows / actions if excluded
+.github/
